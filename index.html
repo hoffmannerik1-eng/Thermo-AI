@@ -1,0 +1,381 @@
+
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>THERMO AI – Smart Home</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+:root {
+  --bg:#080d13; --panel:#111b26; --line:#263746;
+  --text:#edf7ff; --muted:#8fa5b8; --green:#54ffad;
+  --red:#ff6b76; --yellow:#ffc66d;
+}
+* {box-sizing:border-box}
+body {
+  margin:0;background:radial-gradient(ellipse at top,#172c3b,var(--bg) 65%);
+  color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  min-height:100vh;
+}
+main {max-width:950px;margin:auto;padding:22px 14px 45px}
+header {display:flex;justify-content:space-between;align-items:center;gap:10px}
+.logo {font-weight:900;letter-spacing:3px}.logo span {color:var(--green)}
+.badge {font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:30px;padding:8px}
+h1 {font-size:clamp(29px,6vw,45px);margin:28px 0 8px}
+p {color:var(--muted);line-height:1.5}
+.grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:24px}
+.card {background:linear-gradient(145deg,#14212e,#0e151e);border:1px solid var(--line);border-radius:20px;padding:18px;min-width:0}
+.card h2 {font-size:14px;letter-spacing:1px;margin:0 0 16px}
+.temp {font-size:clamp(48px,10vw,75px);font-weight:850;letter-spacing:-3px;margin:15px 0}
+.temp small {font-size:23px;color:var(--muted);letter-spacing:0}
+.muted {font-size:12px;color:var(--muted)}
+.row {display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.between {justify-content:space-between}
+.dot {display:inline-block;width:8px;height:8px;border-radius:50%;background:#64788a}
+.good {background:var(--green);box-shadow:0 0 12px #54ffad66}
+.warn {background:var(--yellow)}
+.bad {background:var(--red)}
+video {width:100%;display:block;aspect-ratio:4/3;object-fit:cover;background:#03070a;border-radius:12px;transform:scaleX(-1)}
+button {border:1px solid var(--line);border-radius:11px;padding:12px 15px;background:#1d2c3a;color:var(--text);font-weight:700;cursor:pointer}
+button.primary {background:var(--green);color:#052015;border-color:var(--green)}
+button:disabled {opacity:.4}
+input,select {width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:#080f17;color:var(--text);font:inherit}
+label {display:block;font-size:13px;color:#c0d1df;margin:13px 0 6px}
+.bar {height:6px;background:#263645;border-radius:20px;overflow:hidden;margin-top:15px}
+.bar div {height:100%;width:0;background:var(--green);transition:width .3s}
+.log {background:#080c11;border-radius:10px;padding:12px;max-height:180px;overflow:auto;white-space:pre-wrap;font:12px/1.6 monospace;color:#c1d1de}
+.note {border-left:3px solid var(--yellow);padding-left:10px;font-size:12px}
+.full {grid-column:1/-1}
+@media(max-width:650px) {
+  .grid {grid-template-columns:1fr}
+  .full {grid-column:auto}
+}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="logo">THERMO <span>AI</span></div>
+  <div class="badge">SMART HOME · LIVE</div>
+</header>
+
+<h1>Dein Temperatur-<br><span style="color:var(--green)">Wächter.</span></h1>
+<p>Thermostat beobachten, Temperatur erkennen und bei Bedarf eine Smart-Home-Automatisierung auslösen.</p>
+
+<div class="grid">
+<section class="card">
+  <div class="row between">
+    <h2>TEMPERATUR</h2>
+    <span class="row muted"><i id="tempDot" class="dot"></i><span id="tempStatus">Bereit</span></span>
+  </div>
+  <div class="temp" id="temp">--.-<small> °C</small></div>
+  <div class="muted" id="lastRead">Warte auf Messung</div>
+  <div class="bar"><div id="bar"></div></div>
+  <div class="row between" style="margin-top:13px">
+    <span class="muted">Einschaltschwelle</span><b id="thresholdLabel">18 °C</b>
+  </div>
+  <div class="row" style="margin-top:17px">
+    <i id="lightDot" class="dot"></i>
+    <span class="muted" id="lightStatus">Lichtstatus unbekannt</span>
+  </div>
+</section>
+
+<section class="card">
+  <h2>LIVE-KAMERA</h2>
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas" hidden></canvas>
+  <div class="row" style="margin-top:12px">
+    <button class="primary" id="start">Kamera starten</button>
+    <button id="stop" disabled>Kamera stoppen</button>
+  </div>
+  <p class="muted">Richte die Kamera auf die Ziffern des Thermostats. Erlaube den Kamerazugriff im Browser.</p>
+</section>
+
+<section class="card">
+  <h2>AUTOMATIK</h2>
+  <label for="threshold">Einschalten bei oder unter (°C)</label>
+  <input id="threshold" type="number" value="18" min="-20" max="60" step="0.5">
+  <label for="offThreshold">Ausschalten ab (°C)</label>
+  <input id="offThreshold" type="number" value="19" min="-20" max="60" step="0.5">
+  <label for="interval">Prüfintervall</label>
+  <select id="interval">
+    <option value="5000">5 Sekunden</option>
+    <option value="10000" selected>10 Sekunden</option>
+    <option value="20000">20 Sekunden</option>
+  </select>
+  <p class="note">Es werden zwei aufeinanderfolgende Messungen benötigt, bevor automatisch geschaltet wird.</p>
+</section>
+
+<section class="card">
+  <h2>HOME ASSISTANT</h2>
+  <label for="webhook">Webhook-URL (HTTPS)</label>
+  <input id="webhook" type="url" placeholder="https://dein-server/api/webhook/DEIN_TOKEN">
+  <label class="row" style="margin:15px 0">
+    <input id="enabled" type="checkbox" style="width:19px;height:19px">
+    Automatische Lichtsteuerung aktiv
+  </label>
+  <div class="row">
+    <button id="testOn">Test: Licht EIN</button>
+    <button id="testOff">Test: Licht AUS</button>
+  </div>
+  <p class="muted" id="bridgeStatus">Webhook noch nicht konfiguriert.</p>
+  <p class="note">Behandle die Webhook-URL wie ein Passwort. Wer sie besitzt, könnte die Automation auslösen.</p>
+</section>
+
+<section class="card full">
+  <div class="row between">
+    <h2>EREIGNISPROTOKOLL</h2>
+    <button id="clear">Leeren</button>
+  </div>
+  <div id="log" class="log">[bereit] THERMO AI gestartet.</div>
+</section>
+</div>
+
+<p class="muted" style="text-align:center;margin-top:24px">
+Die Seite muss geöffnet bleiben. iPad-Browser können die Kamera im Hintergrund pausieren.
+</p>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const video = $("video"), canvas = $("canvas");
+  const ctx = canvas.getContext("2d");
+
+  let stream = null, timer = null, worker = null, busy = false;
+  let goodReads = 0, lightOn = null, lastCommand = 0;
+
+  function log(text) {
+    $("log").textContent =
+      "[" + new Date().toLocaleTimeString("de-DE") + "] " +
+      text + "\n" + $("log").textContent;
+  }
+
+  function status(text, type = "") {
+    $("tempStatus").textContent = text;
+    $("tempDot").className = "dot " + type;
+  }
+
+  function numberText(n) {
+    return n.toLocaleString("de-DE", {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1
+    });
+  }
+
+  function parseTemp(text) {
+    const cleaned = text.toUpperCase()
+      .replace(/[OQ]/g, "0")
+      .replace(/,/g, ".");
+
+    // Bevorzugt Ziffern, die direkt mit °C gekennzeichnet sind.
+    const marked = [...cleaned.matchAll(
+      /(-?\d{1,2}(?:\.\d{1,2})?)\s*(?:°\s*C|℃|ºC|\bC\b)/g
+    )].map(m => Number(m[1]))
+      .filter(n => Number.isFinite(n) && n >= -20 && n <= 60);
+
+    if (marked.length) return marked[0];
+
+    // Ohne °C nur eine einzige plausible Zahl akzeptieren.
+    const all = [...cleaned.matchAll(/-?\d{1,2}(?:\.\d{1,2})?/g)]
+      .map(m => Number(m[0]))
+      .filter(n => Number.isFinite(n) && n >= -20 && n <= 60);
+
+    const unique = [...new Set(all)];
+    return unique.length === 1 ? unique[0] : null;
+  }
+
+  async function getWorker() {
+    if (worker) return worker;
+    if (!window.Tesseract) throw new Error(
+      "Texterkennung nicht geladen. Internetverbindung prüfen."
+    );
+    worker = await Tesseract.createWorker("eng");
+    await worker.setParameters({
+      tessedit_char_whitelist: "0123456789.,-°CcOoQ "
+    });
+    return worker;
+  }
+
+  async function sendLight(action, manual = false) {
+    const url = $("webhook").value.trim();
+
+    if (!url) {
+      $("bridgeStatus").textContent = "Bitte zuerst eine Webhook-URL eintragen.";
+      log("Kein Webhook eingerichtet. Kein Schaltbefehl gesendet.");
+      return;
+    }
+
+    if (!url.startsWith("https://")) {
+      $("bridgeStatus").textContent = "Bitte eine HTTPS-URL verwenden.";
+      return;
+    }
+
+    try {
+      // no-cors erlaubt einen einfachen POST ohne lesbare Antwort.
+      // Daher kann der Browser die tatsächliche Ausführung nicht bestätigen.
+      await fetch(url, {
+        method: "POST",
+        mode: "no-cors",
+        body: action
+      });
+
+      lightOn = action === "on";
+      lastCommand = Date.now();
+
+      $("lightDot").className = "dot " + (lightOn ? "good" : "");
+      $("lightStatus").textContent =
+        "Befehl gesendet: Licht " + (lightOn ? "EIN" : "AUS") +
+        " (nicht bestätigt)";
+      $("bridgeStatus").textContent =
+        "Webhook-Aufruf gesendet. Die tatsächliche Ausführung muss in Home Assistant geprüft werden.";
+
+      log((manual ? "Manueller Test: " : "Automatik: ") +
+        "Licht " + action.toUpperCase() + " angefordert.");
+    } catch (err) {
+      $("bridgeStatus").textContent = "Webhook-Fehler: " + err.message;
+      log("Webhook-Fehler: " + err.message);
+    }
+  }
+
+  async function automate(temp) {
+    if (!$("enabled").checked) return;
+
+    const onAt = Number($("threshold").value);
+    const offAt = Number($("offThreshold").value);
+
+    if (!Number.isFinite(onAt) || !Number.isFinite(offAt) || offAt < onAt) {
+      $("bridgeStatus").textContent =
+        "Fehler: Ausschaltgrenze muss mindestens so hoch wie Einschaltgrenze sein.";
+      return;
+    }
+
+    // Mindestabstand zwischen Befehlen, um ständiges Schalten zu verhindern.
+    if (Date.now() - lastCommand < 30000) return;
+
+    if (temp <= onAt && lightOn !== true) {
+      await sendLight("on");
+    } else if (temp >= offAt && lightOn !== false) {
+      await sendLight("off");
+    }
+  }
+
+  async function readFrame() {
+    if (busy || !stream || video.readyState < 2) return;
+    busy = true;
+
+    try {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const ocr = await getWorker();
+      const result = await ocr.recognize(canvas);
+      const raw = result.data.text || "";
+      const temp = parseTemp(raw);
+
+      if (temp === null) {
+        goodReads = 0;
+        status("Display nicht eindeutig", "warn");
+        log("Keine sichere Temperatur erkannt. Bitte Kamera neu ausrichten.");
+        return;
+      }
+
+      goodReads++;
+      $("temp").innerHTML = numberText(temp) + "<small> °C</small>";
+      $("lastRead").textContent =
+        "Letzte Messung: " + new Date().toLocaleTimeString("de-DE");
+      $("thresholdLabel").textContent =
+        numberText(Number($("threshold").value)) + " °C";
+      $("bar").style.width =
+        Math.max(0, Math.min(100, (temp + 10) / 50 * 100)) + "%";
+
+      status("Temperatur erkannt", "good");
+      log("Erkannt: " + numberText(temp) + " °C");
+
+      if (goodReads >= 2) await automate(temp);
+    } catch (err) {
+      status("Erkennungsfehler", "bad");
+      log("Fehler: " + err.message);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function startCamera() {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Kamera nicht verfügbar. Öffne die Seite über HTTPS.");
+      }
+
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      });
+
+      video.srcObject = stream;
+      await video.play();
+
+      $("start").disabled = true;
+      $("stop").disabled = false;
+      status("Kamera aktiv", "good");
+      log("Kamera gestartet.");
+
+      await readFrame();
+      timer = setInterval(readFrame, Number($("interval").value));
+    } catch (err) {
+      stream = null;
+      status("Kamera nicht verfügbar", "bad");
+      log("Kamera-Fehler: " + err.message);
+    }
+  }
+
+  function stopCamera() {
+    if (timer) clearInterval(timer);
+    timer = null;
+    if (stream) stream.getTracks().forEach(track => track.stop());
+    stream = null;
+    video.srcObject = null;
+    $("start").disabled = false;
+    $("stop").disabled = true;
+    status("Kamera gestoppt");
+    log("Kamera gestoppt.");
+  }
+
+  $("start").addEventListener("click", startCamera);
+  $("stop").addEventListener("click", stopCamera);
+  $("testOn").addEventListener("click", () => sendLight("on", true));
+  $("testOff").addEventListener("click", () => sendLight("off", true));
+  $("clear").addEventListener("click", () => $("log").textContent = "Protokoll geleert.");
+
+  $("threshold").addEventListener("input", () => {
+    $("thresholdLabel").textContent =
+      numberText(Number($("threshold").value)) + " °C";
+  });
+
+  $("interval").addEventListener("change", () => {
+    if (stream) {
+      clearInterval(timer);
+      timer = setInterval(readFrame, Number($("interval").value));
+    }
+  });
+
+  // URL bleibt lokal in diesem Browser gespeichert.
+  try {
+    $("webhook").value = localStorage.getItem("thermoWebhook") || "";
+    $("webhook").addEventListener("change", () => {
+      localStorage.setItem("thermoWebhook", $("webhook").value.trim());
+      $("bridgeStatus").textContent = "Webhook-Einstellung lokal gespeichert.";
+    });
+  } catch (_) {}
+
+  window.addEventListener("pagehide", stopCamera);
+})();
+</script>
+</body>
+</html>
